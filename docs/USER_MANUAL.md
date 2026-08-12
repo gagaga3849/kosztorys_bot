@@ -53,7 +53,7 @@ question-asking and math are not built yet)*
    of the math. 🚧 *(the AI-parsing and math engine are both mid-build)*
 2. **It shows the schedule, not just the money.** A screed needs about 28 days to cure before
    tiling can start — a quote that ignores that isn't a real quote. You'll see a day-by-day
-   timeline, including drying/curing time between phases. � *(the phase-dependency scheduler is
+   timeline, including drying/curing time between phases. 🚧 *(the phase-dependency scheduler is
    built and tested; not yet wired to a real conversation)*
 3. **It always sets aside a "things we can't see yet" buffer.** Old walls hide surprises. Rather
    than a suspiciously precise number that blows up mid-project, the estimate includes an
@@ -64,23 +64,25 @@ question-asking and math are not built yet)*
    has protected features (period plasterwork, frescoes, original parquet), the bot won't
    pretend to price it — quoting a heritage renovation without a conservator's sign-off is a
    professional and legal minefield. Instead it flags the job for a human expert immediately.
-   � *(the pricing engine's refusal-to-price behavior is built/tested; detecting heritage
-   keywords from your message is not built yet — see DIARY.md)*
+   🚧 *(detecting heritage keywords from your message + the pricing engine's refusal-to-price
+   behavior are both built/tested; not yet reachable through a real conversation)*
 5. **It separates "design" money from "building" money.** If you also need an interior design
    concept, that's quoted and shown as its own line — never quietly folded into the construction
    total, so you always know what you're paying for. 🚧 *(pricing logic for all three
-   design-fee models is built/tested; the dialogue question that asks you about it is not
+   design-fee models is built/tested; the question "do you already have a design project?" is
+   defined and ready to ask, but the multi-turn conversation that would actually ask it isn't
    built yet)*
 6. **It shows you three real choices, not one number someone else picked for you.** At the
    precise-quote stage, you get economy/standard/premium material columns side by side, with
    labor cost held constant — so you decide the budget, not the estimator. 🚧 *(the 3-tier
-   calculation is built/tested; not yet shown in a document)*
+   calculation AND its PDF rendering are both built/tested; not yet reachable through a real
+   conversation)*
 7. **It's upfront about what's NOT included and what happens with money.** Every PDF will state
    plainly what's excluded (e.g. "hidden structural issues found after demolition"), the payment
    schedule (deposit / milestones / final), and warranty periods per trade — because a contract
    people don't understand is a contract people don't trust. 🚧 *(the exclusions list, payment
-   schedule and warranty data are generated/attached already; rendering them into an actual PDF
-   is not built yet)*
+   schedule, warranty data, AND the PDF rendering of all of it are built/tested; not yet
+   reachable through a real conversation)*
 
 ---
 
@@ -95,7 +97,9 @@ question-asking and math are not built yet)*
 ## What you'll get as a document
 
 A downloadable PDF, in the standard Polish *Kosztorys Budowlany* format, so you can also hand it
-straight to a contractor, a bank, or keep it for your own records. 🗓️ *(planned)*
+straight to a contractor, a bank, or keep it for your own records. 🚧 *(PDF generation itself is
+built and tested — a real sample was generated and visually checked; not yet reachable through
+a real conversation, since the chat layer/`app.py` don't exist yet)*
 
 ---
 
