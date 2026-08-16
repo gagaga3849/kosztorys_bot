@@ -282,6 +282,34 @@ def test_parse_renovation_request_low_precision_end_to_end() -> None:
     assert data.is_heritage_site is False
 
 
+def test_parse_renovation_request_synthesizes_generic_item_when_llm_returns_no_work_items() -> None:
+    """Regression test: a vague request ("remont łazienki, ok 5 m2") where the LLM extracted
+    a room + area but zero named work_items must still produce a priceable placeholder item
+    (master prompt section 3's LOW-precision "averaged price per m2" behavior) - not an empty
+    work_items list that prices to 0 PLN labor/materials in calculator.py.
+    """
+    fn = _fake_completion({"rooms": ["łazienka"], "total_area_m2": 5.0, "work_items": []})
+
+    data = parse_renovation_request("remont łazienki, ok 5 m2", completion_fn=fn)
+
+    assert data.precision_level == PrecisionLevelEnum.LOW
+    assert len(data.work_items) == 1
+    assert data.work_items[0].work_type == "renovation_generic"
+    assert data.work_items[0].quantity == 5.0
+    assert data.work_items[0].room == "łazienka"
+
+
+def test_parse_renovation_request_keeps_work_items_empty_without_any_area() -> None:
+    """No room/area/work_item at all means there's nothing to synthesize a quantity from -
+    work_items should stay empty rather than fabricating an arbitrary quantity."""
+    fn = _fake_completion({"work_items": []})
+
+    data = parse_renovation_request("hej, chciałbym coś wyremontować", completion_fn=fn)
+
+    assert data.precision_level == PrecisionLevelEnum.LOW
+    assert data.work_items == []
+
+
 def test_parse_renovation_request_high_precision_end_to_end() -> None:
     fn = _fake_completion(
         {

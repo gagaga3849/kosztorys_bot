@@ -147,6 +147,21 @@ class _ComputedItem:
     applied_factors: list[AppliedFactor]
 
 
+# Human-readable (Polish) labels for `ExtractedRenovationData.missing_fields` entries, used
+# by `_build_disclaimer` below. `missing_fields` entries look like internal field paths (e.g.
+# "work_items[tiling_wall].unit") - never show those raw paths to the client, always translate
+# the trailing field name via this table (falls back to the raw field name if not mapped).
+_MISSING_FIELD_LABELS: dict[str, str] = {
+    "quantity": "ilo\u015b\u0107/powierzchnia prac",
+    "unit": "jednostka miary (m2, szt., mb)",
+    "material": "rodzaj materia\u0142u",
+    "tile_size_cm": "format p\u0142ytek",
+    "layout_pattern": "spos\u00f3b uk\u0142adania p\u0142ytek",
+    "substrate_condition": "stan pod\u0142o\u017ca",
+    "is_old_building": "wiek budynku",
+}
+
+
 class EstimateCalculator:
     """Pure calculator: `ExtractedRenovationData` + `PriceRepositoryProtocol` -> `EstimateReport`.
 
@@ -466,9 +481,15 @@ class EstimateCalculator:
         if self._data.precision_level != PrecisionLevelEnum.MID:
             return None
         if self._data.missing_fields:
+            labels: list[str] = []
+            for field_path in self._data.missing_fields:
+                field_name = field_path.rsplit(".", 1)[-1]
+                label = _MISSING_FIELD_LABELS.get(field_name, field_name)
+                if label not in labels:
+                    labels.append(label)
             return (
                 "Wycena wg standardowych za\u0142o\u017ce\u0144. Doprecyzuj: "
-                f"{', '.join(self._data.missing_fields)}, aby otrzyma\u0107 dok\u0142adny kosztorys."
+                f"{', '.join(labels)}, aby otrzyma\u0107 dok\u0142adny kosztorys."
             )
         return "Wycena wg standardowych za\u0142o\u017ce\u0144 rynkowych."
 

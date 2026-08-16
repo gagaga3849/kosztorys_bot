@@ -206,7 +206,8 @@ def test_mid_precision_includes_disclaimer_mentioning_missing_fields(prices: Fak
 
     assert len(report.cost_breakdowns) == 1
     assert report.disclaimer is not None
-    assert "work_items.material" in report.disclaimer
+    assert "rodzaj materiału" in report.disclaimer
+    assert "work_items.material" not in report.disclaimer
     assert report.cost_breakdowns[0].risk_coefficient == Decimal("0.135")
 
 

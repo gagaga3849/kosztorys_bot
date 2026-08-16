@@ -66,6 +66,15 @@ async def test_fake_adapter_send_document_records_call():
     assert adapter.sent_documents == [("42", "/tmp/kosztorys.pdf", "Twój kosztorys")]
 
 
+async def test_default_send_choice_falls_back_to_a_numbered_text_list():
+    """Channels with no native button support (the base `MessengerAdapter` default, used by
+    the WhatsApp/Viber stubs) still surface the options - just as plain numbered text."""
+    adapter = FakeAdapter()
+    await adapter.send_choice("42", "Co dalej?", [("Tak", "yes"), ("Nie", "no")])
+
+    assert adapter.sent_texts == [("42", "Co dalej?\n\n1. Tak\n2. Nie")]
+
+
 def test_inbound_message_defaults_are_none_when_only_required_fields_given():
     message = InboundMessage(channel="whatsapp", user_id="user-1")
 

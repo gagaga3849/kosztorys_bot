@@ -387,5 +387,6 @@ def save_estimate_pdf(
 ) -> Path:
     """Convenience wrapper: render + write the PDF to `output_path`, returning the `Path`."""
     output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_bytes(generate_estimate_pdf(report, data, generated_at=generated_at))
     return output_path

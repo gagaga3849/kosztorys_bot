@@ -22,12 +22,17 @@ interface and `app.py` wiring are provable in tests without needing sandbox acco
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel
 
 MessengerChannel = Literal["telegram", "whatsapp", "viber"]
+
+ChoiceOptions = Sequence[tuple[str, str]]
+"""`(label, value)` pairs for `MessengerAdapter.send_choice()` - `label` is what the client
+sees on the button, `value` is what comes back as `InboundMessage.text` when they pick it."""
 
 
 class InboundMessage(BaseModel):
@@ -69,3 +74,21 @@ class MessengerAdapter(ABC):
     async def send_document(self, user_id: str, file_path: str | Path, caption: str) -> None:
         """Send a document (e.g. the generated Kosztorys PDF) with a caption to `user_id`."""
         raise NotImplementedError
+
+    async def send_choice(self, user_id: str, text: str, options: ChoiceOptions) -> None:
+        """Send `text` together with a set of tappable quick-reply options so the client can
+        answer with one tap instead of typing free text (master prompt: never make the client
+        "type a fool answer" for a fixed set of choices - design-service yes/no, start-over/
+        end, etc.).
+
+        `receive()` is expected to normalize a tapped option back into
+        `InboundMessage.text` equal to the chosen option's `value`, so the rest of the
+        pipeline (`core/dialog_manager.py`) never has to know whether an answer came from a
+        tap or from typing - both look like an ordinary text reply.
+
+        Default implementation is a plain-text fallback (numbered list via `send_text`) for
+        channels with no native button support (e.g. the WhatsApp/Viber stubs). Channels that
+        support real tappable buttons (Telegram) override this.
+        """
+        numbered = "\n".join(f"{i + 1}. {label}" for i, (label, _value) in enumerate(options))
+        await self.send_text(user_id, f"{text}\n\n{numbered}")

@@ -20,13 +20,14 @@ Environment: Python 3.10+ required (venv at `.venv/`, see `/memories/repo/conven
 | `llm_parser.py` | ✅ done | ✅ 24/24 passing (`tests/test_llm_parser.py`, fake `completion_fn`, no live LLM calls) | v2 §3 heritage detection (deterministic, pre-LLM short-circuit), §4 design-service question constant + merge helper, §8 foreman tone system prompt. LLM never assigns `precision_level`/`is_heritage_site` — both are pure functions in this module |
 | `pdf_generator.py` | ✅ done | ✅ 10/10 passing (`tests/test_pdf_generator.py`; 9 pure HTML tests + 1 real-PDF-bytes test, skips gracefully without WeasyPrint's native libs) | v2 §2 exclusions, §6 3-tier columns, §7 contract block. Jinja2 (pure, always testable) + WeasyPrint (needs native Pango/GLib/cairo) |
 | `messengers/base.py` | ✅ done | ✅ 7/7 passing (`tests/test_messengers_base.py`) | Defines `InboundMessage` + abstract `MessengerAdapter` (v1 §2). Pure interface, no platform SDKs yet |
-| `messengers/telegram_adapter.py` | ⬜ not started | ⬜ | v1 scope: Telegram only for production DoD |
-| `messengers/whatsapp_adapter.py`, `viber_adapter.py` | ⬜ not started | — | stub-only for v1 |
-| `core/dialog_manager.py` | ⬜ not started | ⬜ | |
-| `config.py` | ⬜ not started | ⬜ | |
-| `app.py` | ⬜ not started | ⬜ | |
-| CI (GitHub Actions), Dockerfile, docker-compose | ⬜ not started | — | |
+| `messengers/telegram_adapter.py` | ✅ done | ✅ 8/8 passing (`tests/test_telegram_adapter.py`, `FakeBot` injected, no real Telegram API calls) | aiogram 3.x. `receive()` parses raw webhook dict directly (no aiogram Update model needed) |
+| `messengers/whatsapp_adapter.py`, `viber_adapter.py` | ✅ done (stubs) | ✅ 11/11 passing (`tests/test_messenger_stub_adapters.py`) | Constructors validate credentials; every method raises a clear `NotImplementedError` - not implemented against a real Cloud API/Viber REST API yet (v1 scope: Telegram only) |
+| `core/dialog_manager.py` | ✅ done | ✅ 12/12 passing (`tests/test_dialog_manager.py`, in-memory `FakeAdapter`, fake `completion_fn`, `tmp_path` for PDF output - no real Telegram/LLM/network calls) | Channel-agnostic conversation state machine: text-only gate, heritage/`EXPERT_REQUIRED` short-circuit + admin notify, design-service question/answer/retry loop, carries the answered `design_service` forward across refinement turns, `_finalize` renders+sends the PDF then any disclaimer/follow-up clarifying questions. **Known v1 gap:** `DEFAULT_DESIGN_FEE_PERCENT = Decimal("0.10")` is a hardcoded stopgap fee (see Foreman's Suggestion #10) since `calculator.py`'s `_price_design_service` requires a pre-populated fee and `PriceRepositoryProtocol` has no design-fee getter yet |
+| `config.py` | ✅ done | ✅ exercised indirectly via `tests/test_app.py` (injection path never calls `Settings.from_env()`) | `Settings.from_env()` reads `TELEGRAM_BOT_TOKEN`/`DATABASE_URL` (required, fail-loud) + optional WhatsApp/Viber/admin/output-dir vars; validates `ADMIN_CHANNEL` against the `MessengerChannel` literal. Only called from `app.py`'s lifespan, never at import time |
+| `app.py` | ✅ done (FINAL file per master prompt's generation order) | ✅ 7/7 passing (`tests/test_app.py`, `create_app(dialog_manager=...)` injection path, `fastapi.testclient.TestClient`, no real DB/network) | FastAPI app mounting `/webhook/telegram`, `/webhook/whatsapp`, `/webhook/viber`, `/healthz`. Telegram webhook verifies `X-Telegram-Bot-Api-Secret-Token` via `secrets.compare_digest` when `TELEGRAM_WEBHOOK_SECRET` is set; unconfigured/stub channels return 501; unexpected processing errors are logged server-side and still return 200 (never leak a stack trace, never trigger sender retry storms) |
+| CI (GitHub Actions), Dockerfile, docker-compose | ✅ done | ✅ Dockerfile build+run smoke-tested locally (real `docker build`/`docker compose up`, healthz + a real heritage webhook payload processed end-to-end); CI workflow validated locally against a fresh (non-reused) Postgres container | Multi-stage `Dockerfile` (non-root user, WeasyPrint native libs, `HEALTHCHECK`, `docker-entrypoint.sh` runs `alembic upgrade head` before `uvicorn`); `docker-compose.yml` (app + Postgres, healthcheck-gated); `.github/workflows/ci.yml` (Postgres service container + full test suite) |
 | `docs/USER_MANUAL.md` | ✅ created, updated alongside features | — | |
+| `docs/DEFINITION_OF_DONE.md` | ✅ done | — | Point-in-time "is v1 shippable" consolidation snapshot |
 
 ---
 
@@ -40,19 +41,28 @@ NOT implemented yet** — they require `calculator.py`, `llm_parser.py`, `db/mod
 |---|---|---|
 | §1 Phases & duration | `WorkPhase`, `WorkItem.phase/depends_on/curing_days` in schema; phase graph + `estimated_duration_days` in calculator | Schema: ✅ &nbsp;/&nbsp; Calculator graph: ✅ (topological sort over phases, tested with a screed+curing scenario) |
 | §2 Risk buffer + exclusions | Risk formula in calculator; auto-generated exclusions list in PDF | Schema: ✅ &nbsp;/&nbsp; Calculator risk formula: ✅ &nbsp;/&nbsp; Exclusions list: ✅ (generated in calculator, in Polish) &nbsp;/&nbsp; Rendered in PDF: ✅ (`pdf_generator.py`'s "Co NIE wchodzi w zakres kosztorysu" section) |
-| §3 Expert-required (heritage) | `EXPERT_REQUIRED` enum value; keyword detection in llm_parser; handoff message + notify-admin trigger | Schema enum: ✅ &nbsp;/&nbsp; Calculator short-circuit (no pricing) + handoff message: ✅ &nbsp;/&nbsp; Keyword detection (llm_parser, bilingual RU/PL, short-circuits before any LLM call): ✅ &nbsp;/&nbsp; admin notify (dialog_manager, will call `MessengerAdapter.send_text`): ⬜ |
-| §4 Design service | `DesignServiceType`, `DesignServiceRequest`, separate pricing, explicit dialogue question | Schema: ✅ &nbsp;/&nbsp; Calculator pricing (3 modes, always separate from construction total): ✅ &nbsp;/&nbsp; llm_parser `DESIGN_SERVICE_QUESTION` constant + `merge_design_service_answer`: ✅ (extraction-time seam only) &nbsp;/&nbsp; actual multi-turn dialogue: ⬜ (needs `core/dialog_manager.py`) |
+| §3 Expert-required (heritage) | `EXPERT_REQUIRED` enum value; keyword detection in llm_parser; handoff message + notify-admin trigger | Schema enum: ✅ &nbsp;/&nbsp; Calculator short-circuit (no pricing) + handoff message: ✅ &nbsp;/&nbsp; Keyword detection (llm_parser, bilingual RU/PL, short-circuits before any LLM call): ✅ &nbsp;/&nbsp; admin notify (dialog_manager, calls `MessengerAdapter.send_text` on the configured `admin_channel`/`admin_user_id`): ✅ (tested, `test_heritage_message_sends_handoff_and_notifies_admin`) |
+| §4 Design service | `DesignServiceType`, `DesignServiceRequest`, separate pricing, explicit dialogue question | Schema: ✅ &nbsp;/&nbsp; Calculator pricing (3 modes, always separate from construction total): ✅ &nbsp;/&nbsp; llm_parser `DESIGN_SERVICE_QUESTION` constant + `merge_design_service_answer`: ✅ (extraction-time seam only) &nbsp;/&nbsp; actual multi-turn dialogue (`core/dialog_manager.py`'s ask/interpret/retry/carry-forward loop): ✅ (tested) |
 | §5 Logistics/seasonal factors | `LogisticsFactor`/`SeasonalFactor` DB tables; applied as itemized labor surcharges | Schema (`AppliedFactor`): ✅ &nbsp;/&nbsp; Calculator application via `PriceRepositoryProtocol`: ✅ (tested) &nbsp;/&nbsp; Real DB tables (`db/models.py`): ✅ (tested against real Postgres) - **note:** `wet_process_allowed` column exists but is not yet consumed by the phase scheduler, see Foreman's Suggestion #4 |
 | §6 Three material tiers | `MaterialTier`, per-tier `CostBreakdown` | Schema: ✅ &nbsp;/&nbsp; Calculator producing 3 tiers with shared labor cost: ✅ (tested) &nbsp;/&nbsp; PDF columns: ✅ (`pdf_generator.py`'s three-column `tiers-table`, shared labor row) |
 | §7 Contract block in PDF | Payment schedule, warranty terms, exclusions in the rendered PDF | Schema (`ContractorProfile`, `PaymentMilestone`, `WarrantyTerm`): ✅ &nbsp;/&nbsp; Calculator attaches `contractor_profile` to report: ✅ &nbsp;/&nbsp; PDF rendering: ✅ ("Warunki umowy" section) |
 | §8 "Voice of the foreman" tone | System prompt style for clarifying questions | ✅ done — `SYSTEM_PROMPT` in `llm_parser.py` (Polish, plain-language, explicitly forbids the LLM from pricing) + `CLARIFYING_QUESTION_BY_FIELD`/`LOW_PRECISION_CLARIFYING_QUESTIONS` avoid jargon like "wastage factor" |
 
-**Conclusion: proceed to `messengers/telegram_adapter.py` next** — the channel-agnostic contract
-(`InboundMessage`, `MessengerAdapter`) is now defined and tested via an in-memory fake adapter.
-Next per the master prompt's own generation order (section 6, step 6): the Telegram adapter
-(aiogram 3.x, v1 scope: Telegram only for production DoD), then `whatsapp_adapter.py`/
-`viber_adapter.py` as stubs, then `core/dialog_manager.py` to wire parser → calculator → PDF →
-messenger together.
+**Conclusion: v1 is feature-complete AND production-hardened.** All 8 steps of the master
+prompt's file-generation order are done, plus Dockerfile/docker-compose/CI (all smoke-tested
+for real, not just written) and `docs/DEFINITION_OF_DONE.md`. See that file for the full
+shippability snapshot. Remaining work (rate limiting, background task queue, structured
+logging, a few Foreman's-Suggestion-log ideas) is explicitly deferred and non-blocking - see
+`docs/DEFINITION_OF_DONE.md` §3/§5 for the tracked list.
+
+
+**Open security follow-up (do NOT forget, see Foreman's Suggestion #9):** when
+`core/dialog_manager.py` adds the voice/photo pipeline (feeding `InboundMessage.voice_file_url`/
+`image_file_url` to an LLM), it MUST download the file bytes server-side first and pass
+bytes/base64 to the LLM provider - never forward Telegram's raw file URL (which embeds the
+bot token) to a third-party API. This is a concrete, must-fix-before-shipping item, not just
+a nice-to-have; flag it again explicitly in that file's own summary when it's built, and treat
+it as blocking for the v1 Definition of Done if the Vision/voice path ships without the fix.
 
 ---
 
@@ -252,6 +262,204 @@ messenger together.
   dependencies - `messengers/base.py` only uses `abc`, `pathlib`, `typing`, and `pydantic`
   (already in `requirements.txt`).
 
+### 2026-08-12 — messengers/telegram_adapter.py + tests/test_telegram_adapter.py
+- Implemented per master prompt v1 section 2/6 (aiogram 3.x; the only channel required for
+  the v1 production Definition of Done).
+- `receive()` parses Telegram's raw webhook `Update` JSON via plain dict access (no aiogram
+  `Update` model needed), handling `message`/`edited_message`; any other update type
+  (`callback_query`, `channel_post`, ...) raises `ValueError` since `core/dialog_manager.py`
+  (not yet built) is expected to only route message-bearing updates here. Text messages,
+  voice messages (`voice`/`audio`), and photos (largest of the `photo` size array, Telegram
+  lists smallest-to-largest) are all mapped onto `InboundMessage`.
+- Voice/photo `file_id`s are resolved to downloadable URLs via a `getFile` Bot API call
+  (`_resolve_file_url`), building `https://api.telegram.org/file/bot<TOKEN>/<file_path>` -
+  this is Telegram's own URL scheme, not something invented here.
+- The `aiogram.Bot` instance is constructed lazily and injectable via `TelegramAdapter(bot_token,
+  bot=...)`, mirroring `llm_parser.py`'s `completion_fn` injection pattern - tests use a
+  `FakeBot` (in `tests/test_telegram_adapter.py`) instead of a real bot token/network call.
+- **Security note flagged, not yet fixed** (see Foreman's Suggestion #9 below): the resolved
+  file URLs embed the bot token. Whatever eventually consumes these (a Vision LLM call in
+  `llm_parser.py`/`core/dialog_manager.py`) must not forward the raw URL to a third-party
+  provider as-is.
+- **Tests: 8/8 passing** in `tests/test_telegram_adapter.py` - constructor rejects an empty
+  token, plain text parsing, `edited_message` parsing, voice message + URL resolution, photo
+  message picks the largest size + resolves URL, unsupported update type raises, `send_text`
+  and `send_document` both call the injected fake bot with the right arguments.
+- **Full suite: 85/85 passing** (previous 77 + `tests/test_telegram_adapter.py` 8).
+- Added `aiogram>=3` to `requirements.txt`.
+
+### 2026-08-13 — messengers/whatsapp_adapter.py + viber_adapter.py (v1 stubs) + tests
+- Implemented per master prompt v1 section 2/6, v1-scope-only stubs (Telegram remains the only
+  channel required for the production Definition of Done). `WhatsAppAdapter`/`ViberAdapter` both
+  implement `MessengerAdapter` fully (concrete classes, not abstract), validate their required
+  credentials in `__init__` (fail fast on empty token/phone_number_id), and raise a clear,
+  descriptive `NotImplementedError` from `receive`/`send_text`/`send_document` explaining this
+  is a v1 stub and what real implementation would require (WhatsApp Cloud API webhook shape +
+  `/messages` endpoint; Viber REST Bot API webhook event shape + `send_message` endpoint).
+- Purpose: prove `MessengerChannel`/`MessengerAdapter` is genuinely channel-agnostic (three
+  adapters share one contract, not just Telegram), and let `core/dialog_manager.py`/`app.py`
+  wire up all three webhook routes today without needing WhatsApp Cloud API/Viber sandbox
+  accounts, with real implementations droppable in later without touching any other file.
+- **Tests: 11/11 passing** in `tests/test_messenger_stub_adapters.py` - both classes: reject
+  empty credentials at construction, expose the correct `channel`, and raise
+  `NotImplementedError` from all three interface methods.
+- **Full suite: 96/96 passing** (previous 85 + `tests/test_messenger_stub_adapters.py` 11).
+- No new dependencies.
+
+### 2026-08-13 — core/dialog_manager.py + tests/test_dialog_manager.py
+- Implemented `DialogManager`, the channel-agnostic orchestrator (master prompt section 6,
+  step 7 - "точка сборки всего пайплайна"): `adapters: dict[MessengerChannel, MessengerAdapter]`,
+  `prices: PriceRepositoryProtocol`, `output_dir`, optional `admin_channel`/`admin_user_id`,
+  injectable `completion_fn` (same DI convention as `llm_parser.py`/`telegram_adapter.py`).
+- Conversation state machine (`_ConversationState`, keyed by `(channel, user_id)`):
+  1. **Text-only gate** - if `message.text is None` (voice/photo only), sends
+     `TEXT_ONLY_NOTICE` and returns immediately, without calling `parse_renovation_request` -
+     voice/vision transcription is explicitly out of v1 scope (known gap, see module docstring).
+  2. **Heritage/`EXPERT_REQUIRED` short-circuit** - `parse_renovation_request` itself detects
+     heritage keywords before any LLM call; `_handle_expert_required` sends
+     `report.expert_handoff_message` to the user and calls `_notify_admin` (closes v2 §3's
+     last open checklist item), then clears the session.
+  3. **Design-service question loop (v2 §4)** - `needs_design_service_clarification` fires
+     whenever `data.design_service is None`, independent of precision level, so it is asked
+     on essentially every fresh conversation before the first PDF. Replies are interpreted by
+     `interpret_design_service_reply` (deterministic PL+RU keyword match, mirrors
+     `detect_heritage_keywords` - never guesses on a money-adjacent decision); an ambiguous
+     reply sends `DESIGN_SERVICE_RETRY_NOTICE` and leaves the session `awaiting_design_service`
+     untouched. Once answered, the answer is carried forward across later refinement turns via
+     `merge_design_service_answer` (since each turn re-parses `raw_text_history` from scratch
+     and would otherwise forget it), so the question is never asked twice in one conversation.
+  4. **`_finalize`** - computes the `EstimateReport`, saves the PDF to
+     `output_dir/kosztorys_<user_id>_<uuid>.pdf`, sends it via `adapter.send_document`, then
+     conditionally sends `report.disclaimer` (MID precision only - LOW/HIGH have none) and a
+     `REFINEMENT_INTRO` + joined `clarifying_questions` follow-up (LOW/MID can have up to 5;
+     HIGH always has none).
+- **Known v1 gap** (flagged in the module docstring and as Foreman's Suggestion #10 below):
+  `DEFAULT_DESIGN_FEE_PERCENT = Decimal("0.10")` is a hardcoded stopgap, because
+  `calculator.py`'s `_price_design_service` requires a fee value already populated on
+  `DesignServiceRequest` and `PriceRepositoryProtocol` has no design-fee getter to look one up.
+- **Tests: 12/12 passing** in `tests/test_dialog_manager.py`, reusing `FakePriceRepository`
+  from `test_calculator.py` (cross-file fixture reuse convention) and the exact LOW/HIGH JSON
+  payload shapes from `test_llm_parser.py`; a local `FakeAdapter` records `sent_texts`/
+  `sent_documents` in memory. Covers: voice-only text gate, heritage handoff + admin notify
+  (with/without admin configured), design-question-first ordering, ambiguous-reply retry with
+  state preservation, full HIGH-precision flow producing a real PDF (`tmp_path`, verifies
+  `%PDF` magic bytes), LOW-precision flow's follow-up clarifying-questions text, the
+  design-service answer being carried forward across a third refinement turn without
+  re-asking, and a clear `ValueError` for an unconfigured channel.
+- **Bug found and fixed by these tests**: `interpret_design_service_reply`'s original
+  has-vs-needs keyword check order caused "nie mam projektu, proszę wliczyć" to be
+  misclassified as "has a design" (`needed=False`), because the loose has-keyword
+  `"mam projekt"` is a substring of `"nie mam projektu"`. Fixed by checking the needs-keyword
+  list (which includes the negation marker `"nie mam"`) first.
+- **Full suite: 108/108 passing** (previous 96 + `tests/test_dialog_manager.py` 12). Confirmed
+  the `DYLD_FALLBACK_LIBRARY_PATH` prefix is no longer needed in the test command - WeasyPrint's
+  own macOS import-time fix in `pdf_generator.py` is sufficient standalone.
+- No new dependencies.
+
+### 2026-08-13 — config.py + app.py + tests/test_app.py (FINAL file, master prompt step 8)
+- Implemented `config.py`'s `Settings.from_env()`: reads `TELEGRAM_BOT_TOKEN`/`DATABASE_URL`
+  (required, fail-loud `RuntimeError` if missing, same convention as `db/session.py`'s
+  `get_database_url()`), optional `OUTPUT_DIR`/`ADMIN_CHANNEL`/`ADMIN_USER_ID`/
+  `TELEGRAM_WEBHOOK_SECRET`/WhatsApp/Viber credentials. Validates `ADMIN_CHANNEL` against the
+  `MessengerChannel` literal at load time rather than failing later with a confusing error.
+  Loads a local `.env` via `python-dotenv` (new dependency) but never at import time - only
+  from `app.py`'s `lifespan`, so importing `config.py` never requires env vars to be set.
+- Implemented `app.py`'s `create_app(dialog_manager=None, webhook_secret=None)`: with a
+  `dialog_manager` given, builds a plain FastAPI app with no lifespan (the test/injection
+  path - no DB/network ever touched); with none given, registers an async `lifespan` that
+  builds `Settings`, a Postgres engine, loads the `PriceRepository` snapshot, constructs real
+  adapters (Telegram always; WhatsApp/Viber only if their credentials are configured) and a
+  real `DialogManager`, storing it on `app.state` (the production path - `app = create_app()`
+  at module level is what `uvicorn app:app` runs).
+- Routes: `GET /healthz`; `POST /webhook/telegram` (verifies
+  `X-Telegram-Bot-Api-Secret-Token` against `TELEGRAM_WEBHOOK_SECRET` via
+  `secrets.compare_digest` - constant-time comparison, OWASP-relevant since a naive `==`
+  string compare leaks timing information about how many leading bytes matched); `POST
+  /webhook/whatsapp`/`POST /webhook/viber` (return 501 if the channel isn't configured, or if
+  the adapter is still a v1 `NotImplementedError` stub). Any other unexpected exception during
+  processing is logged server-side (`logger.exception`) and the route still returns 200 - never
+  leaks a stack trace to the caller, and avoids triggering the sender's webhook-retry storm on
+  a transient internal error.
+- **Tests: 7/7 passing** in `tests/test_app.py`, exclusively via `create_app(dialog_manager=...)`
+  injection + `fastapi.testclient.TestClient` - reuses `FakePriceRepository` from
+  `test_calculator.py`, a local `FakeAdapter` (parses the raw webhook dict directly into an
+  `InboundMessage`, unlike `test_dialog_manager.py`'s `FakeAdapter` whose `receive()` isn't
+  used) and a `BoomAdapter` that raises `RuntimeError` from `receive()` to prove the
+  "never leak a 500, always return 200" error-handling path. Covers: health check, real
+  end-to-end webhook processing (heritage message → handoff text sent), missing/wrong/correct
+  webhook secret, unconfigured-channel 501, and the crash-still-returns-200 case.
+- **New dependencies**: `fastapi>=0.110`, `uvicorn[standard]>=0.29`, `httpx>=0.27` (only used
+  by `fastapi.testclient.TestClient` in tests, not by app.py's production code path),
+  `python-dotenv>=1.0`. Added to `requirements.txt`. Created `.env.example` per master prompt
+  section 5, plus the extra vars this project actually needs (`DATABASE_URL`, `OUTPUT_DIR`,
+  `ADMIN_CHANNEL`, `ADMIN_USER_ID`, `TELEGRAM_WEBHOOK_SECRET`) - `.env` itself was already in
+  `.gitignore`.
+- **Full suite: 115/115 passing** (previous 108 + `tests/test_app.py` 7).
+- **Note**: `fastapi.testclient`'s `TestClient` currently emits a `StarletteDeprecationWarning`
+  ("Using httpx with starlette.testclient is deprecated; install httpx2 instead") on this
+  Starlette version. Not acting on it now (tests pass, no functional impact; `httpx2` isn't a
+  package we recognize well enough to adopt sight-unseen) - revisit when Starlette's own docs
+  clarify the migration path.
+- All 8 steps of the master prompt's file-generation order are now complete. Remaining work is
+  production hardening (Dockerfile, CI, rate limiting, DoD doc) — see Foreman's Suggestion #11.
+
+### 2026-08-13 — Production hardening: Dockerfile, docker-compose.yml, CI, DEFINITION_OF_DONE.md
+- **`Dockerfile`**: multi-stage build (`builder` installs deps into a venv, `runtime` copies
+  just the venv + source, keeping no compiler/build tools in the final image). Runtime stage
+  installs WeasyPrint's native Linux deps (`libpango-1.0-0`, `libpangocairo-1.0-0`,
+  `libgdk-pixbuf2.0-0`, `libcairo2`, `shared-mime-info`, `fonts-dejavu-core`) via apt - no
+  macOS-style `DYLD_FALLBACK_LIBRARY_PATH` workaround needed on Linux, apt puts them on the
+  standard linker path. Runs as a non-root `app` user; `HEALTHCHECK` hits `/healthz`.
+  `docker-entrypoint.sh` runs `alembic upgrade head` before `exec`-ing the CMD (`uvicorn
+  app:app`), so a container never serves traffic against a stale schema and fails loudly if
+  migrations fail.
+- **Bug found and fixed while smoke-testing**: the non-root `app` user had no writable
+  Fontconfig cache directory, producing a "Fontconfig error: No writable cache directories"
+  log line on every startup/PDF render (WeasyPrint → Pango → Fontconfig). Fixed by creating
+  `/app/.cache` and setting `XDG_CACHE_HOME=/app/.cache`, owned by `app`.
+- **Verified for real, not just "should work"**: ran `docker build`, then
+  `docker compose up --build -d` with the real `db` (Postgres 16) + `app` services; confirmed
+  `alembic upgrade head` ran automatically on container start, `/healthz` returned 200, and a
+  realistic Telegram webhook JSON payload (heritage keyword message) POSTed to
+  `/webhook/telegram` was processed end-to-end through the real container (dialog manager →
+  calculator → heritage handoff → `TelegramAdapter.send_text` - which correctly raised and was
+  caught/logged/200'd since the smoke-test token was a dummy, proving the "never leak a 500"
+  contract holds under Docker too). Torn down and cleaned up (`docker compose down -v`, image
+  removed, temporary `.env` deleted) after verification.
+- **`docker-compose.yml`**: `db` (Postgres 16 alpine, named volume, healthcheck) + `app`
+  (builds from the `Dockerfile`, `env_file: .env`, `DATABASE_URL` overridden to point at the
+  `db` service by its compose network name, `depends_on: db: condition: service_healthy`,
+  named volume for `/app/output`).
+- **`.dockerignore`**: excludes `.venv/`, `__pycache__/`, `.git/`, `.env`, `tests/`, `docs/`,
+  markdown files, generated `output/` from the build context.
+- **`.github/workflows/ci.yml`**: runs on push/PR to `main`; a `postgres:16-alpine` service
+  container (port 55432, matching `tests/conftest.py`'s default `TEST_DATABASE_URL`); installs
+  the same WeasyPrint apt deps as the Dockerfile; installs `requirements-dev.txt`; runs
+  `alembic upgrade head` as a schema sanity check; runs the full test suite.
+- **Bug found and fixed while validating the CI workflow locally**: `alembic upgrade head`
+  correctly failed against my *reused* local `kosztorys_test_pg` container (its tables were
+  already created directly by `tests/conftest.py`'s `Base.metadata.create_all`, without
+  Alembic's own `alembic_version` tracking - a `DuplicateTableError`). This is NOT a bug in
+  the CI workflow itself - CI's service container starts empty every run. Confirmed the
+  workflow is actually correct by spinning up a genuinely fresh, throwaway Postgres container
+  (different port) and re-running `alembic upgrade head` + the full suite against it - both
+  passed cleanly, matching what CI will see.
+- **Second bug found the same way**: my first attempt at validating the CI test step used a
+  bare `pytest tests/ -q` and hit `ModuleNotFoundError: No module named 'db'` - bare `pytest`
+  does not add the current directory to `sys.path`, only `python -m pytest` does (this project
+  relies on that, since `tests/` deliberately has no `__init__.py` for its cross-file fixture
+  import convention). Fixed `ci.yml` to use `python -m pytest tests/ -q`. Logged as a general
+  gotcha in `/memories/repo/conventions.md` and `/memories/python-testing.md` (user-level, not
+  repo-specific, since this trips up any project with a similar test layout).
+- **`docs/DEFINITION_OF_DONE.md`** (new file): a point-in-time "is v1 shippable" consolidation
+  - scope, file-generation-order status table, production-hardening status table, security
+  posture summary, known-gaps summary (cross-referencing the Foreman's Suggestions Log), and
+  how-to-run instructions for local/Docker Compose/CI. Distinct from `DIARY.md` (chronological
+  engineering log) - this is the "read this one file to know if we can ship" snapshot.
+- **Full suite: still 115/115 passing** (no source code changed this phase, only
+  infra/docs/CI files - `tests/` unaffected).
+- No new Python dependencies (Docker/CI tooling only).
+
 ---
 
 ## Foreman's Suggestions Log
@@ -305,3 +513,29 @@ entry says whether it's already implemented, planned, or just a flagged idea for
    and date, plus a contractor NIP/REGON (Polish business registry numbers) block — currently
    only `company_name` is modeled. Flagging as a v1 gap for whenever this PDF needs to become a
    legally binding attachment rather than just an informational quote.
+9. **[idea, security]** `telegram_adapter.py`'s resolved `voice_file_url`/`image_file_url`
+   embed the bot token in the URL path (Telegram's own file-download scheme, not something we
+   chose) — this is fine as long as only our own backend fetches these URLs server-side. When
+   `core/dialog_manager.py`/`llm_parser.py` add the Vision/voice pipeline, they must download
+   the bytes themselves and pass raw bytes/base64 to the LLM provider — never forward the
+   Telegram URL as-is to a third-party API (e.g. Gemini Vision's "give me a URL" mode), or the
+   bot token leaks to that provider. Flagging now, before that pipeline exists, so it's built
+   correctly the first time rather than needing a security-incident retrofit later.
+10. **[idea]** `core/dialog_manager.py`'s `DEFAULT_DESIGN_FEE_PERCENT = Decimal("0.10")` (10%
+    of budget) is a single hardcoded project-wide fee applied whenever a client says yes to the
+    design service question. A real estimating office prices design/documentation services
+    differently per contractor, per city, and per project complexity - a 10% flat fee on a
+    small bathroom job and a whole-apartment renovation are not comparable asks. Once
+    `PriceRepositoryProtocol` gains a design-fee getter (mirroring `get_labor_rate` etc.), this
+    constant should be replaced with a real lookup so it's contractor-configurable via the price
+    catalog rather than baked into the orchestrator code.
+11. **[idea]** `app.py`'s webhook routes have no rate limiting or request body size cap - a
+    real deployment gets hit by scanners/bots probing every public endpoint, and each POST to
+    `/webhook/telegram` (once past the secret-token check) currently triggers a full
+    LLM-call + PDF-generation pipeline. Also: webhook processing currently runs inline in the
+    request handler rather than being handed off to a background task/queue - fine for v1
+    traffic, but a slow LLM provider response risks missing Telegram's webhook response-time
+    expectations under load. Both are standard production-hardening items (rate limiter
+    middleware or a reverse-proxy-level limit; a task queue like `arq`/`celery` for the actual
+    pipeline work) - flagging now so they aren't forgotten before the real Definition of Done,
+    not because anything is broken in the current single-user-testing scope.

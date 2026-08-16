@@ -1,0 +1,43 @@
+# Local/production-like orchestration: the app container + a Postgres instance. For
+# development, `docker compose up` is the fastest way to get a fully working stack without
+# installing Postgres locally. Real deployments may instead point `DATABASE_URL` at a managed
+# Postgres and drop the `db` service entirely - nothing in `app.py`/`config.py` assumes
+# docker-compose specifically.
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kosztorys
+      POSTGRES_PASSWORD: kosztorys
+      POSTGRES_DB: kosztorys
+    volumes:
+      - kosztorys_pg_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kosztorys"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Overrides whatever DATABASE_URL is in .env so the app always talks to the `db`
+      # service by its compose network name, not localhost.
+      DATABASE_URL: postgresql+asyncpg://kosztorys:kosztorys@db:5432/kosztorys
+    ports:
+      - "8000:8000"
+    volumes:
+      - kosztorys_output:/app/output
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  kosztorys_pg_data:
+  kosztorys_output:
